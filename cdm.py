@@ -31,6 +31,7 @@ clientId = None				# Used to store the Client ID
 clientSecret = None			# Used to store the Client Secret
 grantType = "client_credentials"	# Grant Type being used - defalt: client_credentials
 cacheControl = "no-cache"		# By default, dont cache
+urlTimeout = 10				# Second to wait for the api to respond default = 10
 
 '''
 Begin defining functions neeed to support PXC and SNTC DataMiners
@@ -58,11 +59,12 @@ def storage(csv_dir=None, json_dir=None, temp_dir=None):
             os.mkdir(json_dir)
 
     # Temp dir for download data
-    if os.path.isdir(temp_dir):
-        shutil.rmtree(temp_dir)
-        os.mkdir(temp_dir)
-    else:
-        os.mkdir(temp_dir)
+    if temp_dir:
+        if os.path.isdir(temp_dir):
+            shutil.rmtree(temp_dir)
+            os.mkdir(temp_dir)
+        else:
+            os.mkdir(temp_dir)
 
 #
 # Fix file name to be Windows compatable
@@ -101,15 +103,26 @@ def api_exception(e):
         logging.debug(f"Response Content:{e.response.text}")
 
 #
+# try to figure out the HTTP error - in the case of some exceptions, the response is not provied,
+# so we have to look at the error sting to see if we can figure it out
+def api_exception_code(e):
+    http_status_code_pattern = re.compile(r'\b(\d{3})\b')
+
+    if hasattr(e, 'response') and e.response:
+        return e.response.status_code
+
+    else:
+        # Search for the pattern in the string
+        code = http_status_code_pattern.search(str(e))
+
+        # Return the matched HTTP status code or None if not found
+        return int(code.group(1)) if code else None
+
+#
 # handle the send
 def api_header():
     headers = {'Authorization': f'Bearer {token}'}
     return headers
-#
-# handle the send
-def api_send(method, url, headers, **kwargs):
-    return requests.request(method, url, headers=headers, verify=True, timeout=10, **kwargs)
-            
 #
 # function to contain the error logic for any API request call
 def api_request(method, url, headers, **kwargs):
@@ -141,11 +154,32 @@ def api_request(method, url, headers, **kwargs):
 
     while True:
         try:
-            response = api_send(method, url, headers, **kwargs)
+            response = requests.request(method, url, headers=headers, verify=True, timeout=urlTimeout, **kwargs)
             response.raise_for_status()  # Raise an HTTPError for bad responses (4xx and 5xx)
             if tries >= 2:
                 logging.info("\nSuccess on retry! \nContinuing.")
             break
+        except requests.exceptions.HTTPError as e:
+            status_code = api_exception_code(e)
+            logging.error(f"HTTPError: Status:{status_code} Method:{method} Attempt:{tries}")
+            api_exception(e)
+
+            if status_code >= 500:
+                logging.info("Server Error: Retrying: {e}")
+            elif status_code == 401:
+                logging.debug(f"Client Unauthorized: Retrying: {e}")
+                if firstTime:
+                    token()
+                    firstTiome = False
+            elif status_code == 403:
+                logging.debug(f"Client Forbiden: Aborting: {e}")
+                return None
+            else:
+                logging.debug(f"HTTPError:{status_code} Aborting: {e}")
+                return None
+        except requests.exceptions.RequestException as e:
+            logging.error(f"RequestException: Method:{method} Attempt:{tries}")
+            api_exception(e)
         except requests.exceptions.ReadTimeout as e:
             logging.error(f"ReadTimeoutError: Method:{method} Attempt:{tries}")
             api_exception(e)
@@ -155,26 +189,9 @@ def api_request(method, url, headers, **kwargs):
         except ConnectionError as e:
             logging.error(f"ConnectionError: Method:{method} Attempt:{tries}")
             api_exception(e)
-        except requests.exceptions.RequestException as e:
-            logging.error(f"RequestException: Method:{method} Attempt:{tries}")
-            api_exception(e)
         except Exception as e:
             logging.error(f"Unexpected error: Method:{method} Attempt:{tries}")
             api_exception(e)
-        except requests.exceptions.HTTPError as e:
-            logging.error(f"HTTPError: Method:{method} Attempt:{tries}")
-            api_exception(e)
-            if response.status_code >= 500:
-                logging.info("Server Error: Retrying API call")
-            elif response.status_code == 401 or response.status_code == 403:
-                if firstTime:
-                    # Unauthorized? lets see if a new token will help.. but only try once
-                    token()
-                    firstTiome = FALSE
-            elif response.status_code >= 400:
-                logging.error("Client Error: Aborting API call")
-                response = []
-                break
         finally:
             tries += 1
             token_refresh()		# check to see if token refresh is needed
@@ -185,10 +202,10 @@ def api_request(method, url, headers, **kwargs):
     return response
 
 # If needed, refresh the token so it does not expire
-def token_refresh():
+def token_refresh(max_time=100):
     checkTime = time.time()
     tokenTime = math.ceil(int(checkTime - tokenStartTime) / 60)
-    if tokenTime > 99:
+    if tokenTime > max_time:
         logging.info(f"Token Time is :{tokenTime} minutes, Refreshing")
         token()
     else:
@@ -206,8 +223,12 @@ def token():
            + "&client_id="     + clientId
            + "&client_secret=" + clientSecret
            + "&cache-control=" + cacheControl
-           + "&scope="         + authScope
     )
+
+    # if scope is needed, add it now
+    if authScope:
+        url += url+ "&scope="      + authScope
+
     headers = {'Content-type': 'application/x-www-form-urlencoded'}
     response = requests.request("POST", url, headers=headers)
     if response:
@@ -220,7 +241,7 @@ def token():
     logging.debug(f"API Token:{token}")
     if token:
         print("Done!")
-        print("====================\n\n")
+        print("====================")
 
     else: 
         logging.critical("Unable to retrieve a valid token\n"
