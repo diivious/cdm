@@ -246,9 +246,8 @@ def token():
     else: 
         logging.critical("Unable to retrieve a valid token\n"
               "Check config.ini and ensure your API Keys and if your using the Sandbox or Production for accuracy")
-        logging.critical(f"Client ID: {pxc_client_id}")
-        logging.critical(f"Client Secret: {pxc_client_secret}")
-        logging.critical(f"Production APIs? : {useProductionURL}")
+        logging.critical(f"Client ID: {clientId}")
+        logging.critical(f"Client Secret: {clientSecret}")
         sys.exit()
 
 
