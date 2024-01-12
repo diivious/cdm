@@ -169,7 +169,7 @@ def api_request(method, url, headers, **kwargs):
             elif status_code == 401:
                 logging.debug(f"Client Unauthorized: Retrying: {e}")
                 if firstTime:
-                    token()
+                    token_get()
                     firstTiome = False
             elif status_code == 403:
                 logging.debug(f"Client Forbiden: Aborting: {e}")
@@ -207,13 +207,13 @@ def token_refresh(max_time=100):
     tokenTime = math.ceil(int(checkTime - tokenStartTime) / 60)
     if tokenTime > max_time:
         logging.info(f"Token Time is :{tokenTime} minutes, Refreshing")
-        token()
+        token_get()
     else:
         logging.debug(f"Token time is :{tokenTime} minutes")
 
 
 # Function to get a valid API token from PX Cloud
-def token():
+def token_get():
     global token
     global tokenStartTime
 
