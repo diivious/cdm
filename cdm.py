@@ -167,30 +167,33 @@ def api_request(method, url, headers, **kwargs):
             if status_code >= 500:
                 logging.info("Server Error: Retrying: {e}")
             elif status_code == 401:
-                logging.debug(f"Client Unauthorized: Retrying: {e}")
                 if firstTime:
+                    logging.error(f"Client Unauthorized: Retrying: {e}")
                     token_get()
                     firstTiome = False
+                else:
+                    logging.critical(f"Client Unauthorized: Repeated Failure: {e}")
+                    return None
             elif status_code == 403:
-                logging.debug(f"Client Forbiden: Aborting: {e}")
+                logging.error(f"Client Forbiden: Aborting: {e}")
                 return None
             else:
-                logging.debug(f"HTTPError:{status_code} Aborting: {e}")
+                logging.critical(f"HTTPError:{status_code} Aborting: {e}")
                 return None
         except requests.exceptions.RequestException as e:
-            logging.error(f"RequestException: Method:{method} Attempt:{tries}")
+            logging.warning(f"RequestException: Method:{method} Attempt:{tries}")
             api_exception(e)
         except requests.exceptions.ReadTimeout as e:
-            logging.error(f"ReadTimeoutError: Method:{method} Attempt:{tries}")
+            logging.warning(f"ReadTimeoutError: Method:{method} Attempt:{tries}")
             api_exception(e)
         except requests.exceptions.Timeout as e:
-            logging.error(f"TimeoutError: Method:{method} Attempt:{tries}")
+            logging.warning(f"TimeoutError: Method:{method} Attempt:{tries}")
             api_exception(e)
         except ConnectionError as e:
-            logging.error(f"ConnectionError: Method:{method} Attempt:{tries}")
+            logging.warning(f"ConnectionError: Method:{method} Attempt:{tries}")
             api_exception(e)
         except Exception as e:
-            logging.error(f"Unexpected error: Method:{method} Attempt:{tries}")
+            logging.warning(f"Unexpected error: Method:{method} Attempt:{tries}")
             api_exception(e)
         finally:
             tries += 1
