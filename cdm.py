@@ -91,6 +91,7 @@ def pageofname(page_name, page, total):
 #
 # common error handling
 def api_exception(e):
+    logging.warning(f"Exception:{e}")
     if hasattr(e, 'request') and e.request:
         # Logging.Info details of the request that caused the exception
         logging.error(f"{e.request.method} Request URL: {e.request.url}")
