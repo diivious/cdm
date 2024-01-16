@@ -170,7 +170,7 @@ def api_request(method, url, headers, **kwargs):
                 if firstTime:
                     logging.error(f"Client Unauthorized: Retrying: {e}")
                     token_get()
-                    firstTiome = False
+                    firstTime = False
                 else:
                     logging.critical(f"Client Unauthorized: Repeated Failure: {e}")
                     return None
