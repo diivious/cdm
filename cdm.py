@@ -16,6 +16,7 @@ import requests
 
 from datetime import datetime
 from requests.adapters import HTTPAdapter
+from requests.exceptions import Timeout
 from requests.packages.urllib3.util.retry import Retry
 '''
     Data need by function - must be set by importer
@@ -122,12 +123,11 @@ def api_exception_code(e):
 #
 # handle the send
 def api_header():
-    headers = {'Authorization': f'Bearer {token}'}
-    return headers
+    header = {'Authorization': f'Bearer {token}'}
+    return header
 #
 # function to contain the error logic for any API request call
-def api_request(method, url, headers, **kwargs):
-    global token
+def api_request(method, url, header, **kwargs):
     firstTime = True
     tries = 1
     response = []
@@ -152,14 +152,20 @@ def api_request(method, url, headers, **kwargs):
 
     # Rather Chatty ...
     logging.debug(f"{method}: URL:{url}")
-
     while True:
         try:
-            response = requests.request(method, url, headers=headers, verify=True, timeout=urlTimeout, **kwargs)
+            response = requests.request(method, url, headers=header, verify=True, timeout=urlTimeout, **kwargs)
             response.raise_for_status()  # Raise an HTTPError for bad responses (4xx and 5xx)
-            if tries >= 2:
-                logging.info("\nSuccess on retry! \nContinuing.")
-            break
+
+            status_code = response.status_code
+            if response.status_code == 200:
+                if tries >= 2:
+                    logging.info("\nSuccess on retry! \nContinuing.")
+                break
+        except Timeout as e:
+            logging.warning(f"Timeout: Method:{method} Attempt:{tries}")
+            api_exception(e)
+            time.sleep(1)
         except requests.exceptions.HTTPError as e:
             status_code = api_exception_code(e)
             logging.error(f"HTTPError: Status:{status_code} Method:{method} Attempt:{tries}")
@@ -169,18 +175,19 @@ def api_request(method, url, headers, **kwargs):
                 logging.info("Server Error: Retrying: {e}")
             elif status_code == 401:
                 if firstTime:
-                    logging.error(f"Client Unauthorized: Retrying: {e}")
-                    token_get()
+                    logging.error(f"HTTPError 401 Retrying: {e}")
+                    token_get()			# Maybe expired - get new token
+                    header = api_header()	# New token needs new header
                     firstTime = False
                 else:
-                    logging.critical(f"Client Unauthorized: Repeated Failure: {e}")
-                    return None
+                    logging.error(f"HTTPError 401 Aborting: {e}")
+                    return status_code, response
             elif status_code == 403:
-                logging.error(f"Client Forbiden: Aborting: {e}")
-                return None
+                logging.error(f"HTTPError 403 Aborting: {e}")
+                return status_code, response
             else:
-                logging.critical(f"HTTPError:{status_code} Aborting: {e}")
-                return None
+                logging.error(f"HTTPError:{status_code}  Attempt:{tries}")
+
         except requests.exceptions.RequestException as e:
             logging.warning(f"RequestException: Method:{method} Attempt:{tries}")
             api_exception(e)
@@ -198,12 +205,11 @@ def api_request(method, url, headers, **kwargs):
             api_exception(e)
         finally:
             tries += 1
-            token_refresh()		# check to see if token refresh is needed
             time.sleep(2)		# 2 seconds delay before the next attempt
 
         #End Try
     #End While
-    return response
+    return response.status_code, response
 
 # If needed, refresh the token so it does not expire
 def token_refresh(max_time=100):
@@ -231,10 +237,10 @@ def token_get():
 
     # if scope is needed, add it now
     if authScope:
-        url += url+ "&scope="      + authScope
+        url += "&scope=" + authScope
 
-    headers = {'Content-type': 'application/x-www-form-urlencoded'}
-    response = requests.request("POST", url, headers=headers)
+    header = {'Content-type': 'application/x-www-form-urlencoded'}
+    response = requests.request("POST", url, headers=header)
     if response:
         reply = response.json()
         token = reply.get("access_token", None)
